@@ -1,0 +1,102 @@
+---
+- name: Playbook for Debian 11
+  hosts: all
+  become: true
+  vars:
+    app_user: "www-data"
+    http_host: "localhost"
+    http_conf: "app.conf"
+    http_port: "80"
+  tasks:        
+    - name: Install Apache, MariaDB and PHP 8.2
+      apt:
+        name:
+          - apache2
+          - mariadb-server
+          - php8.2
+          - libapache2-mod-php8.2
+          - php8.2-mysql
+          - php8.2-xml
+        state: present
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+    - name: Set root password for MariaDB
+      become: true
+      command: >
+        mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY 'root';"
+      when: ansible_distribution == " Debian" and ansible_distribution_version == "11"
+
+    - name: Download Composer installer
+      get_url:
+        url: https://getcomposer.org/installer
+        dest: /tmp/composer-setup.php
+      when: ansible_distribution == "Debian" and ansible_distribution_major_version == "11"
+
+    - name: Install Composer
+      command: "php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer"
+      register: composer_install_result
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+    - name: Copy app folder
+      copy:
+        src: ./app
+        dest: /var/www/
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+    - name: Gives access to repo
+      file:
+        path: "/var/www/app"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        recurse: yes
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+    - name: Run Composer Install
+      command: "composer install"
+      args:
+        chdir: "/var/www/app"
+      become_user: "{{ app_user }}"
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+    - name: Doctrine Create Database
+      command: "php bin/console doctrine:database:create"
+      args:
+        chdir: "/var/www/app"
+      become_user: "{{ app_user }}"
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+    - name: Doctrine Make Migration
+      command: "php bin/console doctrine:m:m --no-interaction"
+      args:
+        chdir: "/var/www/app"
+      become_user: "{{ app_user }}"
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+    - name: Create App.conf
+      template:
+        src: templates/app.conf.j2
+        dest: "/etc/apache2/sites-available/app.conf"
+      notify: Restart Apache
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+    - name: Disable default.conf
+      command: "a2dissite 000-default.conf"
+      args:
+        creates: "/etc/apache2/sites-enabled/000-default.conf"
+      notify: Restart Apache
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+    - name: Enable app.conf
+      command: "a2ensite app.conf"
+      args:
+        creates: "/etc/apache2/sites-enabled/app.conf"
+      notify: Restart Apache
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
+
+  handlers:
+    - name: Restart Apache
+      service:
+        name: apache2
+        state: restarted
+      when: ansible_distribution == "Debian" and ansible_distribution_version == "11"
